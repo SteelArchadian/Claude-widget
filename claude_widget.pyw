@@ -1,4 +1,4 @@
-"""Command Center - the user's notification center and bridge to their Claude chats.
+"""Claude widget - the user's notification center and bridge to their Claude chats.
 GPL-3.0-only. Made with AI assistance.
 
 Popups appear without taking focus, click opens that chat in the Claude desktop app, the panel tracks the
@@ -10,10 +10,13 @@ import wave
 import winreg
 from ctypes import wintypes
 
-VERSION = "0.1.0"
-APP = "Command Center"
+VERSION = "0.2.0"
+APP = "Claude widget"
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(os.environ.get("LOCALAPPDATA", HERE), APP)
+_OLD = os.path.join(os.environ.get("LOCALAPPDATA", HERE), "Command Center")
+if not os.path.isdir(DATA) and os.path.isdir(_OLD):  # renamed from "Command Center": carry settings over
+    shutil.copytree(_OLD, DATA)
 CFG = os.path.join(DATA, "config.json")
 HIST = os.path.join(DATA, "history.json")
 LOG = os.path.join(DATA, "commandcenter.log")
@@ -39,7 +42,7 @@ PORT = 47613
 NOWIN = 0x08000000
 
 DEFAULTS = {"opacity": 0.93, "scale": 1.0, "x": None, "y": None, "linger": 12, "volume": 0.5, "mute": False,
-            "pause": False, "autostart": False, "updateRepo": "", "panel": None}
+            "pause": False, "chime": "soft-chime", "autostart": False, "updateRepo": "", "panel": None}
 
 KIND = {"question": ("#e8b04a", "needs an answer"), "ready": ("#5fb88a", "ready for a look"),
         "blocked": ("#d9824f", "blocked"), "broken": ("#d96060", "broken")}
@@ -104,23 +107,14 @@ def make_icon(size=64):
 
 
 # ---------- sound (draft: soft two-note chime, pending the user's pick) ----------
-def make_chime(path, volume):
-    amp = 0.07 * (max(0.0, min(1.0, volume)) ** 2) * 2  # peak ~ -23 dBFS at default 0.5
-    sr = 32000
-    notes = [(659.3, 0.00, 0.30), (880.0, 0.13, 0.34)]
-    n = int(sr * 0.62)
-    buf = [0.0] * n
-    for f, t0, ln in notes:
-        for i in range(int(ln * sr)):
-            t = i / sr
-            k = int((t0 + t) * sr)
-            if k >= n:
-                break
-            att = min(1.0, t / 0.008)
-            env = att * math.exp(-t * 11) * min(1.0, (ln - t) / 0.06)
-            buf[k] += env * (math.sin(2 * math.pi * f * t) + 0.18 * math.sin(2 * math.pi * f * 2 * t) * math.exp(-t * 30))
-    pk = max(1e-9, max(abs(v) for v in buf))
-    data = b"".join(struct.pack("<h", int(v / pk * amp * 32767)) for v in buf)
+def make_chime(path, volume, name="soft-chime"):
+    """Scale the bundled chime (picked by the user from the sound round) to the volume setting."""
+    amp = 0.1 * (max(0.0, min(1.0, volume)) ** 2) * 2  # peak ~ -20 dBFS at default 0.5
+    with wave.open(os.path.join(HERE, "sounds", name + ".wav")) as w:
+        sr, raw = w.getframerate(), w.readframes(w.getnframes())
+    vals = struct.unpack("<%dh" % (len(raw) // 2), raw)
+    pk = max(1, max(abs(v) for v in vals))
+    data = struct.pack("<%dh" % len(vals), *[int(v / pk * amp * 32767) for v in vals])
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with wave.open(path, "wb") as w:
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr); w.writeframes(data)
@@ -326,7 +320,7 @@ class App:
 
     def apply_volume(self):
         try:
-            make_chime(self.sound, self.cfg["volume"])
+            make_chime(self.sound, self.cfg["volume"], self.cfg.get("chime", "soft-chime"))
         except Exception as e:
             log(f"chime: {e}")
 

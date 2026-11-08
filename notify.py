@@ -1,4 +1,4 @@
-"""Command Center: push a notification to the user's widget.
+"""Claude widget: push a notification to the user's widget.
 
   python notify.py "<chat name>" "<one line>" [--session local_id] [--kind question|ready|blocked|broken]
 
@@ -9,7 +9,10 @@ import argparse, json, os, re, sys, time
 
 def _inbox():
     """<mcwDir>/notify/inbox, where mcwDir comes from the widget's config.json (else its data folder)."""
-    data = os.path.join(os.environ.get("LOCALAPPDATA", "."), "Command Center")
+    root = os.environ.get("LOCALAPPDATA", ".")
+    data = os.path.join(root, "Claude widget")
+    if not os.path.isdir(data):
+        data = os.path.join(root, "Command Center")
     try:
         with open(os.path.join(data, "config.json"), encoding="utf-8") as f:
             base = json.load(f).get("mcwDir") or data
